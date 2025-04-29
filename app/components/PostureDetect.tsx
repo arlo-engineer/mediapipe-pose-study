@@ -1,102 +1,133 @@
 'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
-import { judgePosture } from "../utils/postureJudge";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PoseLandmarker, FilesetResolver, DrawingUtils, NormalizedLandmark } from "@mediapipe/tasks-vision";
+import { compareWithReference } from "../utils/postureComparison";
 
 export default function PostureDetect() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [poseLandmarker, setPoseLandmarker] = useState<PoseLandmarker | null>(null);
   const [isWebcamRunning, setIsWebcamRunning] = useState(false);
-  const [postureMessage, setPostureMessage] = useState<string>("");
+  const [postureMessage, setPostureMessage] = useState("");
+  const [referencePosture, setReferencePosture] = useState<NormalizedLandmark[] | null>(null);
+  const shouldSetReferenceRef = useRef(false);
 
-  // PoseLandmarkerのセットアップ
-  const setupPoseLandmarker = async () => {
-    const vision = await FilesetResolver.forVisionTasks(
-      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-    );
-    const landmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-        delegate: "GPU",
-      },
-      runningMode: "VIDEO",
-      numPoses: 1,
-    });
-    setPoseLandmarker(landmarker);
-  };
+  const setupPoseLandmarker = useCallback(async () => {
+    try {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+      );
+      const landmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          delegate: "GPU",
+        },
+        runningMode: "VIDEO",
+        numPoses: 1,
+      });
+      setPoseLandmarker(landmarker);
+    } catch (error) {
+      console.error("Failed to initialize pose landmarker:", error);
+    }
+  }, []);
 
-  // ウェブカメラの設定
-  const startWebcam = async () => {
-    if (navigator.mediaDevices?.getUserMedia) {
+  const startWebcam = useCallback(async () => {
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
+
         videoRef.current.onloadedmetadata = () => {
-          const width = videoRef.current!.videoWidth;
-          const height = videoRef.current!.videoHeight;
-          // video のサイズを canvas に設定
-          if (canvasRef.current) {
-            canvasRef.current.width = width;
-            canvasRef.current.height = height;
+          if (canvasRef.current && videoRef.current) {
+            canvasRef.current.width = videoRef.current.videoWidth;
+            canvasRef.current.height = videoRef.current.videoHeight;
           }
         };
       }
-    } else {
-      console.warn("Webcam not supported");
+    } catch (err) {
+      console.warn("Webcam not supported or permission denied.");
     }
-  };
-
-  // カメラから画像を取得してポーズ推定を行う
-  const detectPose = async () => {
-    if (poseLandmarker && videoRef.current && canvasRef.current) {
-        // videoのサイズが0ならスキップ
-      if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
-        console.warn("Video not ready yet");
-        return;
-      }
-
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        const result = await poseLandmarker.detectForVideo(video, performance.now());
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const drawingUtils = new DrawingUtils(ctx);
-
-        for (const landmark of result.landmarks) {
-          drawingUtils.drawLandmarks(landmark, {
-            radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
-          });
-          drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS);
-
-          const judgment = judgePosture(landmark);
-          setPostureMessage(judgment);
-        }
-      }
-    }
-  };
-
-  useEffect(() => {
-    setupPoseLandmarker();
   }, []);
 
+  const setReferencePostureHandler = () => {
+    shouldSetReferenceRef.current = true;
+    setPostureMessage("3秒後に基準姿勢を設定します");
+
+    setTimeout(() => {
+      shouldSetReferenceRef.current = false;
+      setPostureMessage("基準姿勢の設定が終了しました");
+    }, 3000);
+  };
+
+  const drawPose = (
+    ctx: CanvasRenderingContext2D,
+    landmarks: NormalizedLandmark[]
+  ) => {
+    const drawingUtils = new DrawingUtils(ctx);
+
+    drawingUtils.drawLandmarks(landmarks, {
+      radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
+    });
+    drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS);
+  };
+
+  const detectPose = useCallback(async () => {
+    if (!poseLandmarker || !videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return;
+
+    const result = await poseLandmarker.detectForVideo(video, performance.now());
+
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+    result.landmarks.forEach((landmarks) => {
+      drawPose(ctx, landmarks);
+
+      if (shouldSetReferenceRef.current) {
+        setReferencePosture(landmarks);
+        setPostureMessage("基準姿勢を設定しました");
+      } else if (referencePosture) {
+        const judgment = compareWithReference(landmarks, referencePosture);
+        setPostureMessage(judgment);
+      }
+    });
+  }, [poseLandmarker, referencePosture]);
+
+  // 初回のみ PoseLandmarker をセットアップ
   useEffect(() => {
-    if (isWebcamRunning && poseLandmarker) {
-      startWebcam();
-      const interval = setInterval(detectPose, 100); // 100msごとにポーズを検出
-      return () => clearInterval(interval);
-    }
-  }, [isWebcamRunning, poseLandmarker]);
+    setupPoseLandmarker();
+  }, [setupPoseLandmarker]);
+
+  // カメラ起動・検出の制御
+  useEffect(() => {
+    if (!isWebcamRunning || !poseLandmarker) return;
+
+    startWebcam();
+    const interval = setInterval(detectPose, 100);
+
+    return () => clearInterval(interval);
+  }, [isWebcamRunning, poseLandmarker, startWebcam, detectPose]);
 
   return (
     <div>
       <h1>姿勢矯正サービス</h1>
-      <button onClick={() => setIsWebcamRunning((prev) => !prev)}>
-        {isWebcamRunning ? "カメラ停止" : "カメラ開始"}
-      </button>
+      <div className="flex gap-4">
+        <button onClick={() => setIsWebcamRunning((prev) => !prev)}>
+          {isWebcamRunning ? "カメラ停止" : "カメラ開始"}
+        </button>
+        {isWebcamRunning && (
+          <button onClick={setReferencePostureHandler}>
+            基準姿勢を設定
+          </button>
+        )}
+      </div>
       <p>{postureMessage}</p>
       <div>
         <video ref={videoRef} width="640" height="480" />
