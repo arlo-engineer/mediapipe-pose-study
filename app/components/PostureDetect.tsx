@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
+import { judgePosture } from "../utils/postureJudge";
 
 export default function PostureDetect() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [poseLandmarker, setPoseLandmarker] = useState<PoseLandmarker | null>(null);
   const [isWebcamRunning, setIsWebcamRunning] = useState(false);
-//   const canvasCtx = useRef<CanvasRenderingContext2D | null>(null);
+  const [postureMessage, setPostureMessage] = useState<string>("");
 
   // PoseLandmarkerのセットアップ
   const setupPoseLandmarker = async () => {
@@ -70,6 +71,9 @@ export default function PostureDetect() {
             radius: (data) => DrawingUtils.lerp(data.from!.z, -0.15, 0.1, 5, 1),
           });
           drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS);
+
+          const judgment = judgePosture(landmark);
+          setPostureMessage(judgment);
         }
       }
     }
@@ -93,6 +97,7 @@ export default function PostureDetect() {
       <button onClick={() => setIsWebcamRunning((prev) => !prev)}>
         {isWebcamRunning ? "カメラ停止" : "カメラ開始"}
       </button>
+      <p>{postureMessage}</p>
       <div>
         <video ref={videoRef} width="640" height="480" />
         <canvas ref={canvasRef} width="640" height="480" />
