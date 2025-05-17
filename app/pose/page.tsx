@@ -4,7 +4,7 @@ import PostureDetect from "../components/PostureDetect";
 const Home = () => {
   return (
     <div>
-      <h1>姿勢矯正サービスへようこそ</h1>
+      <h1>Welcome to the Posture Correction Service</h1>
       <PostureDetect />
     </div>
   );

@@ -1,27 +1,43 @@
-'use client';
+"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PoseLandmarker, FilesetResolver, DrawingUtils, NormalizedLandmark } from "@mediapipe/tasks-vision";
+import {
+  PoseLandmarker,
+  FilesetResolver,
+  DrawingUtils,
+  NormalizedLandmark,
+} from "@mediapipe/tasks-vision";
 import { compareWithReference } from "../utils/postureComparison";
 
 export default function PostureDetect() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [poseLandmarker, setPoseLandmarker] = useState<PoseLandmarker | null>(null);
+  const [poseLandmarker, setPoseLandmarker] = useState<PoseLandmarker | null>(
+    null
+  );
   const [isWebcamRunning, setIsWebcamRunning] = useState(false);
   const [postureMessage, setPostureMessage] = useState("");
-  const [referencePosture, setReferencePosture] = useState<NormalizedLandmark[] | null>(null);
+  const [referencePosture, setReferencePosture] = useState<
+    NormalizedLandmark[] | null
+  >(null);
   const shouldSetReferenceRef = useRef(false);
 
   const setupPoseLandmarker = useCallback(async () => {
     try {
+      // ISSUE ROOT CAUSE: This is using the CDN to load WASM files which may not be compatible with GPU-less environments
+      // The WebGL context creation fails on M1 MacBook Air without discrete GPU
       const vision = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
       );
+
+      // ISSUE ROOT CAUSE: The PoseLandmarker initialization fails with WebGL errors
+      // Even though delegate is set to "CPU", the error indicates it still requires GPU service
       const landmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath:
             "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          // IMPORTANT: Setting delegate to "CPU" still requires WebGL context
+          // This is the primary issue on M1 MacBook Air with no discrete GPU
           delegate: "CPU",
         },
         runningMode: "VIDEO",
@@ -29,6 +45,8 @@ export default function PostureDetect() {
       });
       setPoseLandmarker(landmarker);
     } catch (error) {
+      // CRITICAL ERROR: The error occurs here with message about "kGpuService" and "emscripten_webgl_create_context"
+      // indicating that even with CPU delegate, WebGL is still required
       console.error("Failed to initialize pose landmarker:", error);
     }
   }, []);
@@ -54,11 +72,11 @@ export default function PostureDetect() {
 
   const setReferencePostureHandler = () => {
     shouldSetReferenceRef.current = true;
-    setPostureMessage("3秒後に基準姿勢を設定します");
+    setPostureMessage("Setting reference posture in 3 seconds");
 
     setTimeout(() => {
       shouldSetReferenceRef.current = false;
-      setPostureMessage("基準姿勢の設定が終了しました");
+      setPostureMessage("Reference posture setting completed");
     }, 3000);
   };
 
@@ -83,7 +101,10 @@ export default function PostureDetect() {
     const ctx = canvasRef.current.getContext("2d");
     if (!ctx) return;
 
-    const result = await poseLandmarker.detectForVideo(video, performance.now());
+    const result = await poseLandmarker.detectForVideo(
+      video,
+      performance.now()
+    );
 
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
@@ -92,7 +113,7 @@ export default function PostureDetect() {
 
       if (shouldSetReferenceRef.current) {
         setReferencePosture(landmarks);
-        setPostureMessage("基準姿勢を設定しました");
+        setPostureMessage("Reference posture set");
       } else if (referencePosture) {
         const judgment = compareWithReference(landmarks, referencePosture);
         setPostureMessage(judgment);
@@ -100,12 +121,10 @@ export default function PostureDetect() {
     });
   }, [poseLandmarker, referencePosture]);
 
-  // 初回のみ PoseLandmarker をセットアップ
   useEffect(() => {
     setupPoseLandmarker();
   }, [setupPoseLandmarker]);
 
-  // カメラ起動・検出の制御
   useEffect(() => {
     if (!isWebcamRunning || !poseLandmarker) return;
 
@@ -117,14 +136,14 @@ export default function PostureDetect() {
 
   return (
     <div>
-      <h1>姿勢矯正サービス</h1>
+      <h1>Posture Correction Service</h1>
       <div className="flex gap-4">
         <button onClick={() => setIsWebcamRunning((prev) => !prev)}>
-          {isWebcamRunning ? "カメラ停止" : "カメラ開始"}
+          {isWebcamRunning ? "Stop Camera" : "Start Camera"}
         </button>
         {isWebcamRunning && (
           <button onClick={setReferencePostureHandler}>
-            基準姿勢を設定
+            Set Reference Posture
           </button>
         )}
       </div>
