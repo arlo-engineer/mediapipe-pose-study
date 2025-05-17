@@ -25,9 +25,12 @@ export function compareWithReference(
   const earDiff = Math.max(leftEarDiff, rightEarDiff);
 
   // 許容範囲の設定
-  const THRESHOLD_SMALL = 0.02;
-  const THRESHOLD_MEDIUM = 0.04;
-  const THRESHOLD_LARGE = 0.06;
+  const THRESHOLD_SMALL = 0.05;
+  const THRESHOLD_MEDIUM = 0.08;
+  const THRESHOLD_LARGE = 0.1;
+//   const THRESHOLD_SMALL = 0.02;
+//   const THRESHOLD_MEDIUM = 0.04;
+//   const THRESHOLD_LARGE = 0.06;
 
   // 姿勢のずれを判定
   if (shoulderDiff > THRESHOLD_LARGE || noseDiff > THRESHOLD_LARGE || earDiff > THRESHOLD_LARGE) {

@@ -22,7 +22,7 @@ export default function PostureDetect() {
         baseOptions: {
           modelAssetPath:
             "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-          delegate: "GPU",
+          delegate: "CPU",
         },
         runningMode: "VIDEO",
         numPoses: 1,
@@ -48,7 +48,7 @@ export default function PostureDetect() {
         };
       }
     } catch (err) {
-      console.warn("Webcam not supported or permission denied.");
+      console.warn("Webcam not supported or permission denied.", err);
     }
   }, []);
 
